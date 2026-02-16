@@ -11,6 +11,7 @@ class WebSearchDataProvider:
             "reuters.com",
             "wsj.com",
             "marketwatch.com",
+            "bloomberg.com",
             "x.com"
         ]
 
@@ -22,6 +23,7 @@ class WebSearchDataProvider:
             (f"{ticker} stock site:reuters.com", "news"),
             (f"{ticker} stock site:wsj.com", "news"),
             (f"{ticker} stock site:marketwatch.com", "news"),
+            (f"{ticker} stock site:bloomberg.com", "news"),
             (f"{ticker} stock site:x.com", "text")
         ]
         

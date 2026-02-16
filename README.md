@@ -10,10 +10,10 @@ A professional-grade trading analysis application built with Python, Poetry, and
 4. **Social Sentiment**: Analysis of recent news and social sentiment (Good/Bad).
 5. **News Summary**: Bullish and bearish summary of the latest key data.
 6. **Multi-Judge Perspective**: Evaluation from three professional viewpoints:
-   - **Professional Trader**: Focused on price action and technicals.
-   - **Professional Analyst**: Focused on fundamentals and valuation.
-   - **Professional Risk Manager**: Focused on downside risks and stability.
-7. **Final Recommendation**: A definitive "Buy", "Hold", or "Sell" response for the final user.
+   - **Professional Trader**: Focused on price action, technicals, and regime alignment.
+   - **Professional Analyst**: Focused on fundamentals, valuation, and peer comparison.
+   - **Professional Risk Manager**: Focused on downside risks (VaR), drawdown, and portfolio impact.
+8. **Final Recommendation**: A definitive "Buy", "Hold", or "Sell" response for the final user.
 
 ## Support for any LLM
 

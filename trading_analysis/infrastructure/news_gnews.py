@@ -16,6 +16,7 @@ class GoogleNewsRSSProvider:
             "reuters.com",
             "wsj.com",
             "marketwatch.com",
+            "bloomberg.com",
         ]
 
     def _build_url(self, ticker: str, domain: str) -> str:
@@ -53,5 +54,6 @@ def domain_to_publisher(domain: str) -> str:
         "reuters.com": "Reuters",
         "wsj.com": "The Wall Street Journal",
         "marketwatch.com": "MarketWatch",
+        "bloomberg.com": "Bloomberg",
     }
     return mapping.get(domain, domain)
