@@ -1,6 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import List, Optional, Dict, Any
 from datetime import datetime
+import json
+import re
 
 class CompanyFinancials(BaseModel):
     cash: float
@@ -37,9 +39,47 @@ class AnalysisSummary(BaseModel):
     news_analysis: str
 
 class JudgeOpinion(BaseModel):
-    role: str
-    opinion: str
-    recommendation: str  # Buy, Hold, Sell
+    role: str = Field(default="Judge")
+    opinion: str = Field(default="No opinion provided.")
+    recommendation: str = Field(default="Hold")  # Buy, Hold, Sell
+
+    @field_validator('opinion', mode='before')
+    @classmethod
+    def stringify_opinion(cls, v):
+        if isinstance(v, (dict, list)):
+            return json.dumps(v, indent=2)
+        return v
+
+    @model_validator(mode='before')
+    @classmethod
+    def validate_opinion_data(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Ensure recommendation exists and is normalized
+            rec = data.get('recommendation', '')
+            if not rec:
+                # Try to infer from opinion
+                opinion_text = str(data.get('opinion', '')).lower()
+                if any(k in opinion_text for k in ['buy', 'bullish', 'long', 'undervalued', 'growth']):
+                    data['recommendation'] = 'Buy'
+                elif any(k in opinion_text for k in ['sell', 'bearish', 'short', 'overvalued', 'risk']):
+                    data['recommendation'] = 'Sell'
+                else:
+                    data['recommendation'] = 'Hold'
+            else:
+                # Normalize recommendation
+                rec_lower = str(rec).lower()
+                if 'buy' in rec_lower or 'bullish' in rec_lower:
+                    data['recommendation'] = 'Buy'
+                elif 'sell' in rec_lower or 'bearish' in rec_lower:
+                    data['recommendation'] = 'Sell'
+                else:
+                    data['recommendation'] = 'Hold'
+            
+            # Ensure role exists
+            if 'role' not in data:
+                data['role'] = 'Judge'
+                
+        return data
 
 class FinalRecommendation(BaseModel):
     trader_opinion: JudgeOpinion
@@ -95,13 +135,39 @@ class PortfolioImpactReport(BaseModel):
     risk_flags: List[str]
 
 class FinalDecision(BaseModel):
-    recommendation: str  # Buy, Hold, Sell
-    conviction_score: float  # 0-100
-    risk_adjusted_rating: float
-    agreement_index: float
-    position_size_suggestion: float
-    primary_drivers: List[str]
-    key_risks: List[str]
+    recommendation: str = Field(default="Hold")  # Buy, Hold, Sell
+    conviction_score: float = Field(default=50.0)  # 0-100
+    risk_adjusted_rating: float = Field(default=2.5)
+    agreement_index: float = Field(default=0.5)
+    position_size_suggestion: float = Field(default=0.0)
+    primary_drivers: List[str] = Field(default_factory=list)
+    key_risks: List[str] = Field(default_factory=list)
+
+    @model_validator(mode='before')
+    @classmethod
+    def normalize_decision(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Ensure recommendation exists and is normalized
+            rec = data.get('recommendation', '')
+            if not rec:
+                # Try to infer from opinion
+                opinion_text = str(data.get('opinion', '')).lower()
+                if any(k in opinion_text for k in ['buy', 'bullish', 'long', 'undervalued', 'growth']):
+                    data['recommendation'] = 'Buy'
+                elif any(k in opinion_text for k in ['sell', 'bearish', 'short', 'overvalued', 'risk']):
+                    data['recommendation'] = 'Sell'
+                else:
+                    data['recommendation'] = 'Hold'
+            else:
+                # Normalize recommendation
+                rec_lower = str(rec).lower()
+                if 'buy' in rec_lower or 'bullish' in rec_lower:
+                    data['recommendation'] = 'Buy'
+                elif 'sell' in rec_lower or 'bearish' in rec_lower:
+                    data['recommendation'] = 'Sell'
+                else:
+                    data['recommendation'] = 'Hold'
+        return data
 
 class ComprehensiveAnalysis(BaseModel):
     ticker: str
