@@ -50,6 +50,31 @@ You can also specify a different model:
 poetry run python main.py TSLA --model anthropic/claude-3-5-sonnet-20240620
 ```
 
+## Token Usage & Costs Analysis
+
+A single analysis run involves 7 LLM calls to process different aspects of the stock (Health, Value, Sentiment, 3 Judges, and Final Resolver).
+
+### Estimated Token Consumption
+For a standard stock analysis (e.g., AAPL):
+- **Input Tokens**: ~10,000 - 15,000 tokens (includes financials, news titles, quantitative reports, and previous judge reasoning).
+- **Output Tokens**: ~2,000 - 3,000 tokens (includes reasoning, summaries, and structured JSON decisions).
+
+### Estimated Cost per Run
+Based on standard model pricing (per 1M tokens):
+
+| Model Class | Example Models | Est. Cost / Run |
+| :--- | :--- | :--- |
+| **Flagship** | GPT-4o, Claude 3.5 Sonnet, Gemini 1.5 Pro | **$0.06 - $0.12** |
+| **Efficient** | GPT-4o-mini, Gemini 1.5 Flash | **<$0.005** |
+| **Local** | Ollama (Llama 3), LM Studio | **Free ($0.00)** |
+
+*Note: Gemini models often have a free tier via Google AI Studio for limited usage.*
+
+### Cost Optimization Tips
+1. **Use Efficient Models**: For daily tracking, `gpt-4o-mini` or `gemini-1.5-flash` provide excellent results at a fraction of the cost.
+2. **Local Inference**: Use **Ollama** or **LM Studio** to run models locally on your hardware for zero token cost.
+3. **Selective Analysis**: The modular architecture allows for future expansion where specific engines can be disabled to save tokens.
+
 ## Architecture
 
 The project follows Clean Architecture principles:
