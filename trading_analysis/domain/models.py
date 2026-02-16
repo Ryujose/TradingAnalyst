@@ -147,11 +147,10 @@ class FinalDecision(BaseModel):
     @classmethod
     def normalize_decision(cls, data: Any) -> Any:
         if isinstance(data, dict):
-            # Ensure recommendation exists and is normalized
+            # 1. Normalize recommendation
             rec = data.get('recommendation', '')
             if not rec:
-                # Try to infer from opinion
-                opinion_text = str(data.get('opinion', '')).lower()
+                opinion_text = str(data.get('logic_audit', '')).lower()
                 if any(k in opinion_text for k in ['buy', 'bullish', 'long', 'undervalued', 'growth']):
                     data['recommendation'] = 'Buy'
                 elif any(k in opinion_text for k in ['sell', 'bearish', 'short', 'overvalued', 'risk']):
@@ -159,7 +158,6 @@ class FinalDecision(BaseModel):
                 else:
                     data['recommendation'] = 'Hold'
             else:
-                # Normalize recommendation
                 rec_lower = str(rec).lower()
                 if 'buy' in rec_lower or 'bullish' in rec_lower:
                     data['recommendation'] = 'Buy'
@@ -167,6 +165,31 @@ class FinalDecision(BaseModel):
                     data['recommendation'] = 'Sell'
                 else:
                     data['recommendation'] = 'Hold'
+
+            # 2. Robust numeric parsing
+            numeric_fields = {
+                'conviction_score': 50.0,
+                'risk_adjusted_rating': 2.5,
+                'agreement_index': 0.5,
+                'position_size_suggestion': 0.0
+            }
+            
+            for field, default in numeric_fields.items():
+                val = data.get(field)
+                if val is not None and not isinstance(val, (int, float)):
+                    # Try to extract number from string
+                    str_val = str(val)
+                    num_match = re.search(r'(\d+\.?\d*)', str_val)
+                    if num_match:
+                        try:
+                            data[field] = float(num_match.group(1))
+                        except (ValueError, TypeError):
+                            data[field] = default
+                    else:
+                        data[field] = default
+                elif val is None:
+                    data[field] = default
+                    
         return data
 
 class ComprehensiveAnalysis(BaseModel):

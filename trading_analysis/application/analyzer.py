@@ -50,7 +50,7 @@ class StockAnalyzer:
             "health_summary": health_summary,
             "market_value_analysis": market_value_analysis,
             "sentiment_news_analysis": sentiment_news_analysis,
-            "recent_news": [f"[{n.publisher}] {n.title}" for n in news[:10]],
+            "recent_news": [f"[{n.publisher}] {n.title} (Source: {n.link})" for n in news[:20]],
             "risk_metrics": risk_metrics.model_dump() if risk_metrics else {},
             "relative_strength": rel_strength.model_dump() if rel_strength else {},
             "monte_carlo": monte_carlo.model_dump() if monte_carlo else {},

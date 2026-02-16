@@ -32,6 +32,7 @@ class LiteLLMService(LLMService):
         kwargs = {
             "model": self.model,
             "messages": messages,
+            "temperature": 0.0,  # deterministic output for analysis tasks
         }
         if self.api_base:
             kwargs["api_base"] = self.api_base
@@ -148,10 +149,13 @@ class LiteLLMService(LLMService):
         return self._get_content(response)
 
     def analyze_sentiment(self, news: List[NewsItem]) -> str:
-        news_details = "\n".join([f"- [{item.publisher}] {item.title}" for item in news[:15]])
+        news_details = "\n".join([f"- [{item.publisher}] {item.title} (Source: {item.link})" for item in news[:20]])
         prompt = f"""
-        Based on the following news and social media titles from various sources (including Reuters, WSJ, MarketWatch, and X), 
+        Based on the following news and social media titles from various sources (Reuters, WSJ, Bloomberg, MarketWatch, and X), 
         analyze the social sentiment and key data for the stock.
+        
+        You MUST base your analysis ONLY on the provided news titles. Do not hallucinate external events.
+        Include references to specific publishers when citing data.
         
         Emit a response of 'Good' or 'Bad' for overall sentiment, and provide a summary of bullish and bearish points.
         Pay special attention to social sentiment if X (Twitter) sources are present.
@@ -161,8 +165,10 @@ class LiteLLMService(LLMService):
         
         Format:
         Sentiment: [Good/Bad]
+        Sources Used: [List the publishers found in the feed]
         Social Sentiment: [Briefly describe the vibe on social media if available]
-        Summary: [Concise bullish and bearish summary]
+        Summary: [Detailed bullish and bearish summary based on the sources]
+        Reasoning: [Explain your logic based on the frequency and weight of sources]
         """
         response = self._get_completion(
             messages=[{"role": "user", "content": prompt}]
@@ -171,20 +177,21 @@ class LiteLLMService(LLMService):
 
     def get_trader_opinion(self, data: dict) -> JudgeOpinion:
         prompt = f"""
-        You are a Professional Trader. Evaluate the following technical and quantitative data:
+        You are a Professional Trader. Evaluate the following technical and quantitative data for {data.get('ticker')}:
         
         Technical Structure: {json.dumps(data.get('technical_levels'), indent=2)}
         Relative Strength: {json.dumps(data.get('relative_strength'), indent=2)}
         Monte Carlo Upside: {json.dumps(data.get('monte_carlo'), indent=2)}
         Market Regime: {json.dumps(data.get('market_regime'), indent=2)}
-        Sentiment: {data.get('sentiment_news_analysis')}
+        Sentiment Analysis: {data.get('sentiment_news_analysis')}
         
         Evaluate the technical structure, relative strength, Monte Carlo upside probability, and regime alignment.
+        Base your opinion ONLY on the provided data. Do not hallucinate or use external knowledge.
         
         Respond ONLY in JSON format:
         {{
             "role": "Trader",
-            "opinion": "your detailed reasoning here as a plain string",
+            "opinion": "Detailed reasoning based on technicals, regime, and sentiment sources. Be specific about numbers and levels.",
             "recommendation": "Buy/Hold/Sell"
         }}
         """
@@ -196,19 +203,21 @@ class LiteLLMService(LLMService):
 
     def get_analyst_opinion(self, data: dict) -> JudgeOpinion:
         prompt = f"""
-        You are a Professional Financial Analyst. Evaluate the following fundamental and comparative data:
+        You are a Professional Financial Analyst. Evaluate the following fundamental and comparative data for {data.get('ticker')}:
         
         Company Health Summary: {data.get('health_summary')}
         Market Value Analysis: {data.get('market_value_analysis')}
         Financials: {json.dumps(data.get('financials'), indent=2)}
         Relative Strength (Growth vs Peers): {json.dumps(data.get('relative_strength'), indent=2)}
+        Recent News context: {data.get('sentiment_news_analysis')}
         
         Evaluate company health, valuation, growth vs peers, and sector positioning.
+        Ensure your analysis is grounded in the specific numbers provided. Do not hallucinate.
         
         Respond ONLY in JSON format:
         {{
             "role": "Analyst",
-            "opinion": "your detailed reasoning here as a plain string",
+            "opinion": "Detailed fundamental reasoning. Compare the health summary with the market valuation and peer data.",
             "recommendation": "Buy/Hold/Sell"
         }}
         """
@@ -220,19 +229,21 @@ class LiteLLMService(LLMService):
 
     def get_risk_manager_opinion(self, data: dict) -> JudgeOpinion:
         prompt = f"""
-        You are a Professional Risk Manager. Evaluate the following risk and impact data:
+        You are a Professional Risk Manager. Evaluate the following risk and impact data for {data.get('ticker')}:
         
         Risk Metrics: {json.dumps(data.get('risk_metrics'), indent=2)}
         Monte Carlo Downside: {json.dumps(data.get('monte_carlo'), indent=2)}
         Portfolio Impact: {json.dumps(data.get('portfolio_impact'), indent=2)}
         Market Regime Multiplier: {json.dumps(data.get('market_regime'), indent=2)}
+        News-based Risks: {data.get('sentiment_news_analysis')}
         
         Evaluate RiskMetrics, Monte Carlo downside probability, portfolio impact, regime risk multiplier, and drawdown profile.
+        Identify tail risks and provide a conservative assessment. Do not hallucinate risks not supported by data.
         
         Respond ONLY in JSON format:
         {{
             "role": "Risk Manager",
-            "opinion": "your detailed reasoning here as a plain string",
+            "opinion": "Detailed risk assessment reasoning. Focus on VaR, drawdown, and correlation risks.",
             "recommendation": "Buy/Hold/Sell"
         }}
         """
@@ -245,31 +256,39 @@ class LiteLLMService(LLMService):
     def resolve_final_decision(self, opinions: List[JudgeOpinion], data: dict) -> FinalDecision:
         opinions_data = [o.model_dump() for o in opinions]
         prompt = f"""
-        You are the Simulated Final Decision AI. Your role is to reconcile the opinions of three experts and provide a final recommendation.
+        You are the Chief Investment Officer. Your goal is to review the reports from the Trader, Analyst, and Risk Manager and provide a final, unified decision.
         
-        Expert Opinions:
+        STRICT LOGIC RUBRIC:
+        1. Risk Priority: If Risk Manager recommendation is 'Sell' AND 1Y Volatility > 0.50, the final decision MUST be 'Sell' or 'Hold'. NEVER 'Buy'.
+        2. Valuation Cap: If Analyst says 'Overvalued' AND P/E > 100, the final decision MUST NOT be 'Buy' unless the Trader report confirms the price has broken above all resistance levels.
+        3. Conflict Resolution: 
+           - If Market Regime is 'Bullish Expansion', give 60% weight to the Trader's momentum.
+           - If Market Regime is 'Bearish' or 'Volatile', give 60% weight to the Risk Manager's caution.
+        4. Position Sizing: Use the 'Suggested Position Size (Kelly capped)' as a maximum. Reduce this size if the Risk Manager flags high correlation or drawdown risks.
+        
+        INPUT DATA:
         {json.dumps(opinions_data, indent=2)}
         
-        Market Context & Deterministic Scoring:
-        Regime: {json.dumps(data.get('market_regime'), indent=2)}
-        Deterministic Risk Score: {data.get('deterministic_risk_score')}
-        Suggested Position Size (Kelly capped): {data.get('portfolio_impact', {}).get('suggested_position_size')}
+        MARKET CONTEXT:
+        Regime: {data.get('market_regime')}
+        Volatility: {data.get('volatility_1y')}
+        Deterministic Position Limit: {data.get('deterministic_analysis', {}).get('final_suggested_size')}
         
-        Tasks:
-        1. Compare conviction levels.
-        2. Detect disagreements.
-        3. Adjust for regime multiplier.
-        4. Resolve conflicts logically (e.g., If Risk Manager is strongly bearish, downgrade conviction).
+        TASK:
+        1. Conduct a logic audit: Check the input against the 4 logic rules above.
+        2. Resolve conflicts between the three judges.
+        3. Output the final decision in JSON.
         
-        Respond ONLY in JSON format:
+        Respond ONLY in this JSON format:
         {{
+            "logic_audit": "Step-by-step reasoning showing how you applied the Logic Rubric",
             "recommendation": "Buy/Hold/Sell",
-            "conviction_score": 0-100,
-            "risk_adjusted_rating": 0-5.0,
-            "agreement_index": 0-1.0,
-            "position_size_suggestion": 0.0-1.0,
-            "primary_drivers": ["driver 1", "driver 2"],
-            "key_risks": ["risk 1", "risk 2"]
+            "conviction_score": (number between 0-100),
+            "risk_adjusted_rating": (number between 0-5.0),
+            "agreement_index": (number between 0-1.0),
+            "position_size_suggestion": (number between 0.0-1.0),
+            "primary_drivers": ["driver 1", "driver 2", etc],
+            "key_risks": ["risk 1", "risk 2", etc]
         }}
         """
         response = self._get_completion(
