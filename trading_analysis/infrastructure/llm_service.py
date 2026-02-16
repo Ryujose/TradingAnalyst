@@ -1,5 +1,6 @@
 import litellm
 import json
+import re
 from typing import List
 from ..domain.interfaces import LLMService
 from ..domain.models import (
@@ -39,6 +40,88 @@ class LiteLLMService(LLMService):
             
         return litellm.completion(**kwargs)
 
+    def _get_content(self, response):
+        """Extracts content and removes reasoning tags."""
+        content = response.choices[0].message.content
+        return re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+
+    def _parse_json_response(self, response):
+        """
+        Extracts and parses JSON from the LLM response content.
+        Handles reasoning tags, markdown blocks, and provides regex-based fallbacks.
+        """
+        content = response.choices[0].message.content
+        
+        # 1. Remove <think> tags (common in reasoning models)
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+        
+        # 2. Try to find a JSON block in markdown
+        json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+        
+        # 3. Try to find anything between the first { and last }
+        start = content.find('{')
+        end = content.rfind('}')
+        if start != -1 and end != -1 and end >= start:
+            try:
+                return json.loads(content[start:end+1])
+            except json.JSONDecodeError:
+                pass
+        
+        # 4. Regex-based extraction fallback for key fields
+        # This helps if the LLM didn't return valid JSON but the fields are there in text
+        extracted = {}
+        fields = [
+            "role", "opinion", "recommendation", 
+            "conviction_score", "risk_adjusted_rating", 
+            "agreement_index", "position_size_suggestion"
+        ]
+        for field in fields:
+            # Match "field": "value", field: value, etc.
+            pattern = fr'["\']?{field}["\']?\s*[:=]\s*(?:"([^"]*)"|\'([^\']*)\'|([^,}}\n]+))'
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                val = match.group(1) or match.group(2) or match.group(3)
+                if val:
+                    try:
+                        # Clean up value and try to convert to float if applicable
+                        val = val.strip().rstrip(',').rstrip('}').strip('"\'')
+                        if field in ["conviction_score", "risk_adjusted_rating", "agreement_index", "position_size_suggestion"]:
+                            # Try to extract the first number found in the value
+                            num_match = re.search(r'(\d+\.?\d*)', val)
+                            if num_match:
+                                extracted[field] = float(num_match.group(1))
+                        else:
+                            extracted[field] = val
+                    except:
+                        extracted[field] = val
+        
+        # List fields for FinalDecision
+        for field in ["primary_drivers", "key_risks"]:
+            list_match = re.search(fr'["\']?{field}["\']?\s*[:=]\s*\[(.*?)\]', content, re.DOTALL | re.IGNORECASE)
+            if list_match:
+                items = re.findall(r'["\']([^"\']+)["\']', list_match.group(1))
+                if not items:
+                    # Try splitting by comma if no quotes
+                    items = [i.strip().strip('"\'') for i in list_match.group(1).split(',') if i.strip()]
+                extracted[field] = items
+
+        if extracted:
+            if "opinion" not in extracted:
+                extracted["opinion"] = content
+            return extracted
+
+        # 5. Fallback to direct load
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            # Last resort: put everything in opinion
+            return {"opinion": content}
+
     def analyze_health(self, financials: CompanyFinancials) -> str:
         prompt = f"""
         Analyze the company health based on the following financial data:
@@ -49,7 +132,7 @@ class LiteLLMService(LLMService):
         response = self._get_completion(
             messages=[{"role": "user", "content": prompt}]
         )
-        return response.choices[0].message.content
+        return self._get_content(response)
 
     def analyze_market_value(self, financials: CompanyFinancials, current_price: float) -> str:
         prompt = f"""
@@ -62,7 +145,7 @@ class LiteLLMService(LLMService):
         response = self._get_completion(
             messages=[{"role": "user", "content": prompt}]
         )
-        return response.choices[0].message.content
+        return self._get_content(response)
 
     def analyze_sentiment(self, news: List[NewsItem]) -> str:
         news_details = "\n".join([f"- [{item.publisher}] {item.title}" for item in news[:15]])
@@ -84,7 +167,7 @@ class LiteLLMService(LLMService):
         response = self._get_completion(
             messages=[{"role": "user", "content": prompt}]
         )
-        return response.choices[0].message.content
+        return self._get_content(response)
 
     def get_trader_opinion(self, data: dict) -> JudgeOpinion:
         prompt = f"""
@@ -101,7 +184,7 @@ class LiteLLMService(LLMService):
         Respond ONLY in JSON format:
         {{
             "role": "Trader",
-            "opinion": "your detailed reasoning here...",
+            "opinion": "your detailed reasoning here as a plain string",
             "recommendation": "Buy/Hold/Sell"
         }}
         """
@@ -109,7 +192,7 @@ class LiteLLMService(LLMService):
             messages=[{"role": "user", "content": prompt}],
             response_format={ "type": "json_object" }
         )
-        return JudgeOpinion(**json.loads(response.choices[0].message.content))
+        return JudgeOpinion(**self._parse_json_response(response))
 
     def get_analyst_opinion(self, data: dict) -> JudgeOpinion:
         prompt = f"""
@@ -125,7 +208,7 @@ class LiteLLMService(LLMService):
         Respond ONLY in JSON format:
         {{
             "role": "Analyst",
-            "opinion": "your detailed reasoning here...",
+            "opinion": "your detailed reasoning here as a plain string",
             "recommendation": "Buy/Hold/Sell"
         }}
         """
@@ -133,7 +216,7 @@ class LiteLLMService(LLMService):
             messages=[{"role": "user", "content": prompt}],
             response_format={ "type": "json_object" }
         )
-        return JudgeOpinion(**json.loads(response.choices[0].message.content))
+        return JudgeOpinion(**self._parse_json_response(response))
 
     def get_risk_manager_opinion(self, data: dict) -> JudgeOpinion:
         prompt = f"""
@@ -149,7 +232,7 @@ class LiteLLMService(LLMService):
         Respond ONLY in JSON format:
         {{
             "role": "Risk Manager",
-            "opinion": "your detailed reasoning here...",
+            "opinion": "your detailed reasoning here as a plain string",
             "recommendation": "Buy/Hold/Sell"
         }}
         """
@@ -157,7 +240,7 @@ class LiteLLMService(LLMService):
             messages=[{"role": "user", "content": prompt}],
             response_format={ "type": "json_object" }
         )
-        return JudgeOpinion(**json.loads(response.choices[0].message.content))
+        return JudgeOpinion(**self._parse_json_response(response))
 
     def resolve_final_decision(self, opinions: List[JudgeOpinion], data: dict) -> FinalDecision:
         opinions_data = [o.model_dump() for o in opinions]
@@ -193,7 +276,7 @@ class LiteLLMService(LLMService):
             messages=[{"role": "user", "content": prompt}],
             response_format={ "type": "json_object" }
         )
-        return FinalDecision(**json.loads(response.choices[0].message.content))
+        return FinalDecision(**self._parse_json_response(response))
 
     def get_judge_opinions(self, data: dict) -> FinalRecommendation:
         # Legacy method for backward compatibility if needed, but we should use the new ones
