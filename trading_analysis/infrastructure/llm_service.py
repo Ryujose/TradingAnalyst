@@ -6,7 +6,7 @@ from ..domain.interfaces import LLMService
 from ..domain.models import (
     CompanyFinancials, NewsItem, FinalRecommendation, JudgeOpinion,
     FinalDecision, RiskMetrics, RelativeStrengthReport, MonteCarloForecast,
-    MarketRegime, PortfolioImpactReport
+    MarketRegime, PortfolioImpactReport, NewsType, Sentiment
 )
 
 class LiteLLMService(LLMService):
@@ -149,7 +149,7 @@ class LiteLLMService(LLMService):
         return self._get_content(response)
 
     def analyze_sentiment(self, news: List[NewsItem]) -> str:
-        news_details = "\n".join([f"- [{item.publisher}] {item.title} (Source: {item.link})" for item in news[:20]])
+        news_details = "\n".join([f"- [{item.publisher}] {item.title} (Source: {item.link})" for item in news[:100]])
         prompt = f"""
         Based on the following news and social media titles from various sources (Reuters, WSJ, Bloomberg, MarketWatch, and X), 
         analyze the social sentiment and key data for the stock.
@@ -296,6 +296,95 @@ class LiteLLMService(LLMService):
             response_format={ "type": "json_object" }
         )
         return FinalDecision(**self._parse_json_response(response))
+
+    def categorize_news(self, news: List[NewsItem]) -> List[NewsItem]:
+        if not news:
+            return []
+            
+        news_to_process = news
+        news_input = []
+        for i, n in enumerate(news_to_process):
+            news_input.append({
+                "id": i,
+                "title": n.title,
+                "content": (n.content or "")[:500] # Limit content length
+            })
+            
+        prompt = f"""
+        You are a Financial News Classifier. Your task is to categorize the following news items into specific types, sentiments, and catalyst strengths.
+        
+        ALLOWED NEWS TYPES:
+        earnings, guidance, FDA, merger, acquisition, offering, dilution, contract, analyst_upgrade, analyst_downgrade, macro, other
+        
+        ALLOWED SENTIMENTS:
+        positive, neutral, negative
+        
+        CATALYST STRENGTH:
+        Integer from 1 (minor) to 5 (major impact).
+        
+        INPUT NEWS:
+        {json.dumps(news_input, indent=2)}
+        
+        Respond ONLY in JSON format as a list of objects with "id", "news_type", "sentiment", and "catalyst_strength".
+        
+        Example Response:
+        [
+            {{"id": 0, "news_type": "earnings", "sentiment": "positive", "catalyst_strength": 4}},
+            ...
+        ]
+        """
+        
+        response = self._get_completion(
+            messages=[{"role": "user", "content": prompt}],
+            response_format={ "type": "json_object" }
+        )
+        
+        results = self._parse_json_response(response)
+        
+        # results might be a list or a dict containing a list
+        if isinstance(results, dict):
+            # Try to find the list in common keys
+            for key in ["results", "news", "items", "categories"]:
+                if key in results and isinstance(results[key], list):
+                    results = results[key]
+                    break
+            else:
+                # If still dict, look for ANY list
+                for val in results.values():
+                    if isinstance(val, list):
+                        results = val
+                        break
+        
+        if not isinstance(results, list):
+            return []
+            
+        processed_news = []
+        for res in results:
+            try:
+                idx = res.get("id")
+                if idx is not None and idx < len(news_to_process):
+                    n = news_to_process[idx].model_copy()
+                    
+                    # Normalize type
+                    nt_str = str(res.get("news_type", "other")).lower()
+                    try:
+                        n.news_type = NewsType(nt_str)
+                    except ValueError:
+                        n.news_type = NewsType.OTHER
+                        
+                    # Normalize sentiment
+                    st_str = str(res.get("sentiment", "neutral")).lower()
+                    try:
+                        n.sentiment = Sentiment(st_str)
+                    except ValueError:
+                        n.sentiment = Sentiment.NEUTRAL
+                        
+                    n.catalyst_strength = int(res.get("catalyst_strength", 1))
+                    processed_news.append(n)
+            except Exception:
+                continue
+                
+        return processed_news
 
     def get_judge_opinions(self, data: dict) -> FinalRecommendation:
         # Legacy method for backward compatibility if needed, but we should use the new ones

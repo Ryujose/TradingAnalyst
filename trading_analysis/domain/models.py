@@ -25,12 +25,52 @@ class SentimentResult(BaseModel):
     label: str  # Good/Bad or Bullish/Bearish
     summary: str
 
+from enum import Enum
+
+class NewsType(str, Enum):
+    EARNINGS = "earnings"
+    GUIDANCE = "guidance"
+    FDA = "FDA"
+    MERGER = "merger"
+    ACQUISITION = "acquisition"
+    OFFERING = "offering"
+    DILUTION = "dilution"
+    CONTRACT = "contract"
+    ANALYST_UPGRADE = "analyst_upgrade"
+    ANALYST_DOWNGRADE = "analyst_downgrade"
+    MACRO = "macro"
+    OTHER = "other"
+
+class Sentiment(str, Enum):
+    POSITIVE = "positive"
+    NEUTRAL = "neutral"
+    NEGATIVE = "negative"
+
 class NewsItem(BaseModel):
+    id: Optional[int] = None
+    symbol: str
     title: str
+    content: Optional[str] = None
     publisher: str
-    link: str
+    link: Optional[str] = None
+    news_type: NewsType = NewsType.OTHER
+    sentiment: Sentiment = Sentiment.NEUTRAL
+    catalyst_strength: int = Field(default=1, ge=1, le=5)
     provider_publish_time: datetime
-    summary: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    is_active: bool = True
+
+    @field_validator('symbol')
+    @classmethod
+    def normalize_symbol(cls, v: str) -> str:
+        return v.upper()
+
+class RunnerNewsLink(BaseModel):
+    id: Optional[int] = None
+    runner_id: str
+    news_id: int
+    linked_at: datetime = Field(default_factory=datetime.now)
 
 class AnalysisSummary(BaseModel):
     health_summary: str
@@ -194,12 +234,57 @@ class FinalDecision(BaseModel):
 
 class ComprehensiveAnalysis(BaseModel):
     ticker: str
-    risk_metrics: RiskMetrics
-    relative_strength: RelativeStrengthReport
-    monte_carlo: MonteCarloForecast
-    market_regime: MarketRegime
-    portfolio_impact: PortfolioImpactReport
+    risk_metrics: Optional[RiskMetrics] = None
+    relative_strength: Optional[RelativeStrengthReport] = None
+    monte_carlo: Optional[MonteCarloForecast] = None
+    market_regime: Optional[MarketRegime] = None
+    portfolio_impact: Optional[PortfolioImpactReport] = None
     trader_opinion: JudgeOpinion
     analyst_opinion: JudgeOpinion
     risk_pro_opinion: JudgeOpinion
     final_decision: FinalDecision
+
+class RunnerItem(BaseModel):
+    ticker: str
+    price: float
+    change: float
+    pct_change: float
+    volume: int
+    relative_volume: Optional[float] = None
+    gap_pct: Optional[float] = None
+    vwap_dist: Optional[float] = None
+    atr: Optional[float] = None
+    volatility: Optional[float] = None
+    range_expansion: Optional[float] = None
+    volume_acceleration: Optional[float] = None
+    market_cap: Optional[float] = None
+    float_size: Optional[float] = None
+    score: float = 0.0
+    classification: str = "Ignore"  # Strong Runner, Developing Runner, Ignore
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class ScoreBreakdown(BaseModel):
+    momentum_score: float
+    liquidity_score: float
+    volatility_score: float
+    acceleration_score: float
+    catalyst_score: float = 0.0
+    total_score: float
+
+class RunnerSnapshot(BaseModel):
+    timestamp: datetime
+    runners: List[RunnerItem]
+    universe_size: int
+
+class ExportData(BaseModel):
+    timestamp: datetime
+    ticker: str
+    signal: str  # Buy/Hold/Sell
+    conviction: float
+    key_metrics: dict
+
+class PortfolioItem(BaseModel):
+    ticker: str
+    weight: float
+    entry_price: Optional[float] = None
+    name: Optional[str] = None

@@ -1,6 +1,6 @@
 from ..domain.interfaces import (
     DataProvider, LLMService, RiskEngine, RelativeStrengthEngine,
-    MonteCarloEngine, MarketRegimeEngine, PortfolioImpactEngine
+    MonteCarloEngine, MarketRegimeEngine, PortfolioImpactEngine, NewsService
 )
 from ..domain.models import ComprehensiveAnalysis, FinalDecision, FinalRecommendation
 from typing import Dict, Optional
@@ -10,6 +10,7 @@ class StockAnalyzer:
         self, 
         data_provider: DataProvider, 
         llm_service: LLMService,
+        news_service: Optional[NewsService] = None,
         risk_engine: Optional[RiskEngine] = None,
         rs_engine: Optional[RelativeStrengthEngine] = None,
         mc_engine: Optional[MonteCarloEngine] = None,
@@ -18,17 +19,27 @@ class StockAnalyzer:
     ):
         self.data_provider = data_provider
         self.llm_service = llm_service
+        self.news_service = news_service
         self.risk_engine = risk_engine
         self.rs_engine = rs_engine
         self.mc_engine = mc_engine
         self.regime_engine = regime_engine
         self.portfolio_engine = portfolio_engine
 
-    def run_analysis(self, ticker: str, portfolio: Optional[Dict[str, float]] = None) -> ComprehensiveAnalysis:
+    def run_analysis(self, ticker: str, portfolio: Optional[Dict[str, float]] = None, catalyst_strength: float = 1) -> ComprehensiveAnalysis:
         # 1. Fetch Basic Data
         financials = self.data_provider.get_financials(ticker)
         technical = self.data_provider.get_technical_data(ticker)
-        news = self.data_provider.get_news(ticker)
+        
+        # Ingest and get structured news if service is available
+        if self.news_service:
+            # This fetches from GNews RSS and categorizes new items via LLM
+            self.news_service.auto_ingest_news(ticker, catalyst_strength)
+            # Fetch the most recent news for this symbol from our repository
+            news = self.news_service.list_news(symbol=ticker)
+        else:
+            # Fallback to the provider's un-categorized news
+            news = self.data_provider.get_news(ticker)
 
         # 2. Run Quantitative Engines
         risk_metrics = self.risk_engine.compute_metrics(ticker) if self.risk_engine else None
@@ -50,7 +61,7 @@ class StockAnalyzer:
             "health_summary": health_summary,
             "market_value_analysis": market_value_analysis,
             "sentiment_news_analysis": sentiment_news_analysis,
-            "recent_news": [f"[{n.publisher}] {n.title} (Source: {n.link})" for n in news[:20]],
+            "recent_news": [f"[{n.publisher}] {n.title} (Source: {n.link})" for n in news[:100]],
             "risk_metrics": risk_metrics.model_dump() if risk_metrics else {},
             "relative_strength": rel_strength.model_dump() if rel_strength else {},
             "monte_carlo": monte_carlo.model_dump() if monte_carlo else {},

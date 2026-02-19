@@ -1,25 +1,30 @@
-[project]
-name = "analisistrading"
+[tool.poetry]
+name = "trading-analyst"
 version = "0.1.0"
-description = ""
-authors = [
-    {name = "Jose Luis Guerra Infante"}
-]
+description = "A sophisticated trading analysis tool."
+authors = ["Jose Luis Guerra Infante"]
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.12,<4.0"
-dependencies = [
-    "yfinance (>=1.1.0,<2.0.0)",
-    "pydantic (>=2.12.5,<3.0.0)",
-    "python-dotenv (>=1.2.1,<2.0.0)",
-    "litellm[google] (>=1.81.9,<2.0.0)",
-    "pandas (>=3.0.0,<4.0.0)",
-    "numpy (>=2.4.2,<3.0.0)",
-    "ddgs (>=9.10.0,<10.0.0)",
-    "feedparser (>=6.0.12,<7.0.0)"
-]
+packages = [{include = "trading_analysis"}]
 
+[tool.poetry.dependencies]
+python = ">=3.12,<4.0"
+yfinance = ">=1.1.0,<2.0.0"
+pydantic = ">=2.12.5,<3.0.0"
+python-dotenv = ">=1.2.1,<2.0.0"
+litellm = {extras = ["google"], version = ">=1.81.9,<2.0.0"}
+pandas = ">=3.0.0,<4.0.0"
+numpy = ">=2.4.2,<3.0.0"
+ddgs = ">=9.10.0,<10.0.0"
+feedparser = ">=6.0.12,<7.0.0"
+rich = ">=13.9.4,<14.0.0"
+typer = ">=0.15.1,<1.0.0"
+sqlalchemy = "^2.0.46"
+psycopg2-binary = "^2.9.11"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0.0"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
+requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
