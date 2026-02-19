@@ -38,17 +38,55 @@ The app uses `litellm`, allowing you to use any major LLM provider:
 
 ## Usage
 
-Run the analysis for any stock ticker:
+### CLI Interface
+
+The project now includes a powerful CLI interface built with `rich` and `typer`.
 
 ```bash
-poetry run python main.py AAPL
+# Analyze a stock
+poetry run python cli.py analyze -t AAPL -m ollama/mistral:7b
+
+# Manage your portfolio
+poetry run python cli.py portfolio
+
+# See daily runners with momentum scoring
+poetry run python cli.py runners --mode live
+
+# Run a live streaming scanner
+poetry run python cli.py runners --stream
+
+# Backtest runners for a specific date
+poetry run python cli.py runners --mode backtest --date 2024-02-15
+
+# Manage catalysts and news
+poetry run python cli.py news add --symbol TSLA --title "Earnings Beat" --source "Reuters" --type earnings --sentiment positive
+poetry run python cli.py news list --symbol TSLA
+poetry run python cli.py news fetch TSLA -m ollama/mistral:7b -catastr 1
 ```
 
-You can also specify a different model:
+### Catalyst-Aware Momentum Scanning
+The `runners` command now integrates with the news module. If recent news (catalysts) exist for a ticker, the momentum score is adjusted based on:
+- **Sentiment**: Positive catalysts increase the score; negative ones decrease it.
+- **News Type**: Earnings, FDA approvals, and Guidance updates carry higher weight.
+- **Strength**: Manually rated catalyst strength (1-5) scales the impact.
+
+### Analysis with Custom Model
+
+You can still run a single analysis via the CLI:
 
 ```bash
-poetry run python main.py TSLA --model anthropic/claude-3-5-sonnet-20240620
+poetry run python cli.py analyze AAPL
 ```
+
+### Configuration
+- Portfolio is stored in `portfolio.json`.
+- Analysis exports are saved to `analysis_export.json` and `analysis_export.csv`.
+
+## Project Structure
+- `trading_analysis/domain`: Core interfaces and data models.
+- `trading_analysis/infrastructure`: Data providers (yfinance, ddgs) and quantitative engines.
+- `trading_analysis/application`: High-level business logic and analyzer orchestration.
+- `cli.py`: Main entry point for the interactive CLI.
 
 ## Token Usage & Costs Analysis
 
